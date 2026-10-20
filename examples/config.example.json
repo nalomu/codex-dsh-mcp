@@ -1,0 +1,25 @@
+{
+  "port": 43219,
+  "allowedRoots": ["/absolute/project"],
+  "stateDir": "/absolute/codex-dsh-mcp/.bridge",
+  "tokens": {
+    "codex": "GENERATE_WITH_INIT_DO_NOT_USE_THIS_EXAMPLE",
+    "dsh": "GENERATE_WITH_INIT_USE_A_DIFFERENT_TOKEN"
+  },
+  "codex": {
+    "command": "/absolute/path/to/codex",
+    "args": [],
+    "env": {},
+    "sourceHome": "/Users/you/.codex"
+  },
+  "dsh": {
+    "command": "/absolute/path/to/node",
+    "args": ["/absolute/path/to/@deepseek-ai/dsh/lib/bin.js"],
+    "env": {},
+    "provider": "deepseek-official",
+    "model": "deepseek-v4-flash",
+    "sourceHome": "/Users/you/.dsh",
+    "modules": "/Users/you/.dsh/profiles/node_modules"
+  },
+  "taskTimeoutMs": 1800000
+}

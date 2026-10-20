@@ -1,0 +1,31 @@
+{
+  "checkedAt": "2026-10-20T08:49:17.064Z",
+  "platform": "macOS",
+  "node": "v24.19.0",
+  "codex": "codex-cli 0.162.1",
+  "dsh": "0.2.0-rc.2",
+  "automated": {
+    "tests": 15,
+    "passed": 15,
+    "failed": 0
+  },
+  "live": [
+    {
+      "caller": "codex",
+      "target": "dsh",
+      "roundsPassed": 2,
+      "sameSession": true,
+      "independentHostTestsPassed": 6,
+      "preExistingEditPreserved": true
+    },
+    {
+      "caller": "dsh",
+      "target": "codex",
+      "roundsPassed": 2,
+      "sameSession": true,
+      "independentHostTestsPassed": 4,
+      "preExistingEditPreserved": true
+    }
+  ],
+  "privacy": "Raw transcripts, execution identifiers, account data and machine paths are excluded."
+}

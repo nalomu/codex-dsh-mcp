@@ -1,0 +1,10 @@
+# Apply to your main DSH profile only. Never apply to the bridge-owned ACP profile.
+- insert:
+    - id: codex-dsh-bridge
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: agent_bridge
+        transport: streamable-http
+        url: http://127.0.0.1:43219/mcp/dsh
+        headers:
+          Authorization: !!js '`Bearer ${process.env.DSH_CODEX_BRIDGE_TOKEN}`'

@@ -1,0 +1,4 @@
+# Merge this entry into the main caller's config.toml. Never add to a child home.
+[mcp_servers.agent_bridge]
+url = "http://127.0.0.1:43219/mcp/codex"
+bearer_token_env_var = "CODEX_DSH_BRIDGE_TOKEN"
