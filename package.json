@@ -1,0 +1,51 @@
+{
+  "name": "codex-dsh-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local bidirectional Codex App Server / DeepSeek Harness ACP task bridge",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "tsx --test tests/*.test.ts",
+    "start": "node dist/cli.js serve",
+    "doctor": "node dist/cli.js doctor",
+    "health": "node dist/cli.js health",
+    "generate:codex": "node scripts/generate-codex.mjs",
+    "pretest": "npm run build",
+    "smoke:live": "node scripts/live-smoke.mjs",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "privacy:check": "node scripts/privacy-check.mjs"
+  },
+  "bin": {
+    "codex-dsh-bridge": "dist/cli.js"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "2.0.0",
+    "@modelcontextprotocol/node": "2.1.1",
+    "@modelcontextprotocol/server": "2.3.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "2.3.1",
+    "@types/node": "^24",
+    "prettier": "3.6.2",
+    "tsx": "^4.20",
+    "typescript": "^5.9"
+  },
+  "license": "MIT",
+  "os": [
+    "darwin"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nalomu/codex-dsh-mcp.git"
+  },
+  "homepage": "https://github.com/nalomu/codex-dsh-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/nalomu/codex-dsh-mcp/issues"
+  }
+}

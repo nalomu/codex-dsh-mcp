@@ -1,0 +1,8 @@
+node_modules/
+dist/
+src/generated/
+.bridge/
+work/
+evidence/
+package-lock.json
+THIRD_PARTY_LICENSES/

@@ -1,0 +1,12 @@
+codex-dsh-mcp
+
+Original bridge implementation: MIT License (see LICENSE).
+
+src/generated/codex contains machine-generated protocol declarations derived
+from OpenAI Codex (https://github.com/openai/codex), licensed under Apache-2.0.
+The generating CLI version is recorded in src/generated/codex-version.json.
+Their original generation headers are retained. See
+THIRD_PARTY_LICENSES/Codex-APACHE-2.0.txt for the upstream license.
+
+Installed dependencies remain subject to their own licenses and notices.
+This project does not redistribute Codex CLI, DeepSeek Harness or user credentials.
