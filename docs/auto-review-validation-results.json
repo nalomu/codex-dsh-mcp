@@ -1,0 +1,19 @@
+{
+  "checkedDate": "2026-10-25",
+  "timezone": "Asia/Shanghai",
+  "platform": "Windows",
+  "dshRuntime": "0.2.1-rc.3",
+  "integration": "temporary isolated ACP profile with official Auto review bundle",
+  "permissionPreset": "auto",
+  "approvalFallback": "never",
+  "initialAndContinuationPassed": true,
+  "freshProcessResumePassed": true,
+  "autoActiveAfterResume": true,
+  "independentHostTestsPassed": 4,
+  "independentBehaviorAssertionsPassed": true,
+  "preExistingEditPreserved": true,
+  "dshSourceModified": false,
+  "productionBridgeAutoReviewEnabled": false,
+  "denialAndReviewerFailurePathsTested": false,
+  "privacy": "Raw transcripts, execution identifiers, account data, machine paths and local probe scripts are excluded."
+}

@@ -42,6 +42,21 @@ cleanup retries briefly occupied temporary directories. See
 [Windows setup](docs/windows.md). Main desktop client configuration/restart
 is separate from these SDK endpoint checks.
 
+### Auto review feasibility on Windows
+
+On 2026-10-25 (Asia/Shanghai), a temporary isolated ACP profile loaded the
+official Auto review bundle from the Desktop runtime, DSH 0.2.1-rc.3. It selected
+`auto` on session creation/restoration and used `never` for final approval
+fallback. Initial implementation, same-session continuation, and a fresh-process
+resume all completed. PowerShell calls, file edits, and nested `node --test`
+execution succeeded; independent host verification passed four tests and
+behavior assertions, and the pre-existing dirty file was preserved.
+
+No DSH source changes were needed for this probe. It does not enable Auto review
+in the production bridge or add it to the standard live smoke. Reviewer denial
+and reviewer failure paths were not tested. See
+[sanitized Auto review results](docs/auto-review-validation-results.json).
+
 ## Limits of this evidence
 
 These checks cover the stated runtime versions. Changes to Codex/DSH may require regenerated types or adapter updates. The LaunchAgent plist has been syntax-checked; login-time service installation is not part of the automated tests. Shared-directory snapshots do not prove exclusive attribution of file changes, and they do not prevent external editors writing concurrently.

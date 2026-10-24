@@ -64,3 +64,13 @@ DSH 主端同样从该终端启动，并挂载生成的 overlay：
 ```
 
 两个客户端使用不同令牌；不要把令牌粘贴到聊天、日志或提交中。子会话的隔离配置不挂载桥接 MCP。`examples` 只生成连接文件，不改写已有主端配置。
+
+## Auto review 与 ACP 会话
+
+已在临时隔离 ACP profile 中验证桌面版自带的官方 Auto review（DSH 0.2.1-rc.3）：pwsh、文件读写、`node --test`、同会话追加任务及退出进程后恢复会话均通过。独立宿主复验四个测试通过，原有文件保留。结果见 [Auto review 验证记录](auto-review-validation-results.json)。
+
+该验证没有修改 DSH 源码。临时 profile 使用同一套桌面运行时模块，加载官方 Auto review，并在会话创建或恢复时选择 `auto`。不能把不同版本的外部模块与桌面包混用。
+
+**这是一项可行性验证；当前生产桥接尚未接入 Auto review，`smoke:live` 也不会自动测试它。** 正式启用仍需适配桥接的 profile 生成和会话初始化。Auto review 以完整主机权限执行审核通过的工具，会增加模型调用；本次验证没有覆盖审核拒绝或审核服务故障路径。
+
+桌面 profile 中启用 Auto review 不会自动影响桥接的隔离 ACP profile。桥接使用独立 `DSH_HOME`，因此其会话默认也不会出现在主端 DSH 桌面会话列表；任务进度通过桥接的 `agent_list`、`agent_status` 和 `agent_wait` 查看。
