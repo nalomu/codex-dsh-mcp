@@ -8,7 +8,7 @@ import {
   type ClientConnection,
 } from '@agentclientprotocol/sdk';
 import { ManagedProcess } from '../process.js';
-import { prepareDsh } from '../runtime.js';
+import { prepareDsh, dshSandboxMode } from '../runtime.js';
 import { withDeadline } from '../deadline.js';
 import type { Config, Executor, Execution } from '../types.js';
 export class DshExecutor implements Executor {
@@ -24,7 +24,7 @@ export class DshExecutor implements Executor {
         args: [...this.config.dsh.args, '--profile', 'acp'],
       },
       input.cwd,
-      { DSH_HOME: home, DSH_PERMISSION_MODE: 'workspace-write' },
+      { DSH_HOME: home, DSH_PERMISSION_MODE: dshSandboxMode() },
       this.redact,
       (s) => input.emit('stderr', s),
     );

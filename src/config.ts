@@ -1,5 +1,5 @@
 import { readFile, mkdir, writeFile, access, stat } from 'node:fs/promises';
-import { resolve, join, isAbsolute } from 'node:path';
+import { resolve, join, dirname, isAbsolute } from 'node:path';
 import { homedir } from 'node:os';
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod/v4';
@@ -32,7 +32,8 @@ export const defaultConfig = () =>
   );
 export async function loadConfig(path = defaultConfig()): Promise<Config> {
   const mode = (await stat(path)).mode;
-  if (mode & 0o077)
+  // Windows does not expose POSIX permission bits; ACLs own this boundary there.
+  if (process.platform !== 'win32' && mode & 0o077)
     throw new Error('Config contains credentials: chmod 600 ' + path);
   const config = schema.parse(JSON.parse(await readFile(path, 'utf8')));
   if (config.tokens.codex === config.tokens.dsh)
@@ -55,6 +56,7 @@ export async function initConfig(path: string, roots: string[]) {
   await mkdir(stateDir, { recursive: true, mode: 0o700 });
   let command = 'dsh';
   let args: string[] = [];
+  let modules = join(home, '.dsh/profiles/node_modules');
   const cli = join(
     home,
     '.dsh/profiles/node_modules/@deepseek-ai/dsh/lib/bin.js',
@@ -64,7 +66,15 @@ export async function initConfig(path: string, roots: string[]) {
     command = process.execPath;
     args = [cli];
   } catch {
-    /* PATH installation */
+    // Portable installs (notably Windows) point at an explicit Node + dsh entry.
+    const node = process.env.CODEX_DSH_DSH_NODE;
+    const bin = process.env.CODEX_DSH_DSH_BIN;
+    if (node && bin) {
+      command = node;
+      args = [bin];
+      modules =
+        process.env.CODEX_DSH_DSH_MODULES ?? resolve(dirname(bin), '../../..');
+    }
   }
   const config: Config = {
     port: 43219,
@@ -75,7 +85,7 @@ export async function initConfig(path: string, roots: string[]) {
       dsh: randomBytes(32).toString('hex'),
     },
     codex: {
-      command: 'codex',
+      command: process.env.CODEX_DSH_CODEX_BIN ?? 'codex',
       args: [],
       env: {},
       sourceHome: join(home, '.codex'),
@@ -85,7 +95,7 @@ export async function initConfig(path: string, roots: string[]) {
       args,
       env: {},
       sourceHome: join(home, '.dsh'),
-      modules: join(home, '.dsh/profiles/node_modules'),
+      modules,
       provider: 'deepseek-official',
       model: 'deepseek-v4-flash',
     },

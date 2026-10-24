@@ -1,16 +1,41 @@
 // Separate process-group leader. A daemon crash must not leave an agent editing files.
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { join } from 'node:path';
+
+const windows = process.platform === 'win32';
+/** Resolve a System32 executable without depending on the caller's PATH. */
+const systemExe = (name: string) => {
+  if (!windows) return name;
+  const root = process.env.SystemRoot ?? process.env.windir ?? 'C:\\Windows';
+  return join(root, 'System32', name);
+};
+
 const parent = process.ppid;
 const [command, ...args] = process.argv.slice(2);
 if (!command) process.exit(2);
 const child = spawn(command!, args, {
   stdio: ['pipe', 'pipe', 'pipe'],
   env: process.env,
+  windowsHide: true,
 });
 process.stdin.pipe(child.stdin);
 child.stdout.pipe(process.stdout);
 child.stderr.pipe(process.stderr);
 const killGroup = () => {
+  if (windows) {
+    // taskkill /T walks the whole tree rooted at this supervisor, including the
+    // agent process and anything it already spawned.
+    try {
+      spawnSync(
+        systemExe('taskkill.exe'),
+        ['/PID', String(process.pid), '/T', '/F'],
+        { stdio: 'ignore', windowsHide: true, timeout: 15000 },
+      );
+    } catch {
+      /* already gone */
+    }
+    process.exit(1);
+  }
   try {
     process.kill(-process.pid, 'SIGKILL');
   } catch {

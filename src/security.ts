@@ -83,7 +83,7 @@ export function redactor(secrets: string[]) {
 }
 export function childEnv(extra: Record<string, string>) {
   const result: NodeJS.ProcessEnv = {};
-  for (const key of [
+  const passthrough = [
     'PATH',
     'HOME',
     'TMPDIR',
@@ -97,7 +97,31 @@ export function childEnv(extra: Record<string, string>) {
     'HTTPS_PROXY',
     'ALL_PROXY',
     'NO_PROXY',
-  ])
+  ];
+  // Windows agents and the .cmd shims they may call need the native environment.
+  const windows = [
+    'SystemRoot',
+    'windir',
+    'ComSpec',
+    'PATHEXT',
+    'USERPROFILE',
+    'APPDATA',
+    'LOCALAPPDATA',
+    'TEMP',
+    'TMP',
+    'PROGRAMFILES',
+    'PROGRAMFILES(X86)',
+    'PROGRAMW6432',
+    'PROGRAMDATA',
+    'USERNAME',
+    'USERDOMAIN',
+    'PROCESSOR_ARCHITECTURE',
+    'NUMBER_OF_PROCESSORS',
+    'OS',
+  ];
+  for (const key of process.platform === 'win32'
+    ? [...passthrough, ...windows]
+    : passthrough)
     if (process.env[key]) result[key] = process.env[key];
   for (const [k, v] of Object.entries(extra)) {
     if (/BRIDGE|MCP.*TOKEN/i.test(k))

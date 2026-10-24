@@ -7,11 +7,31 @@ import {
   lstat,
   rename,
   unlink,
+  copyFile,
 } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Config } from './types.js';
-async function linkExisting(source: string, target: string) {
+
+/**
+ * DSH sandbox mode for delegated sessions. The Windows ACL backend cannot
+ * spawn piped grandchildren (documented limitation), so builds/commands like
+ * `node --test` fail under workspace-write there; opt into danger-full-access
+ * explicitly for Windows bridges.
+ */
+export const dshSandboxMode = () => {
+  const mode = process.env.CODEX_DSH_DSH_SANDBOX ?? 'workspace-write';
+  if (!['read-only', 'workspace-write', 'danger-full-access'].includes(mode))
+    throw new Error(
+      'CODEX_DSH_DSH_SANDBOX must be read-only, workspace-write or danger-full-access',
+    );
+  return mode;
+};
+async function linkExisting(
+  source: string,
+  target: string,
+  kind: 'file' | 'dir' = 'file',
+) {
   try {
     await access(source);
   } catch {
@@ -24,6 +44,13 @@ async function linkExisting(source: string, target: string) {
     /* create only */
   }
   try {
+    if (process.platform === 'win32') {
+      // Windows symlinks need extra privileges: junctions cover directories and
+      // small credential files are copied into the isolated home instead.
+      if (kind === 'dir') await symlink(source, target, 'junction');
+      else await copyFile(source, target);
+      return;
+    }
     await symlink(source, target);
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
@@ -49,10 +76,14 @@ export async function prepareCodex(config: Config) {
   await linkExisting(
     join(config.codex.sourceHome, 'auth.json'),
     join(home, 'auth.json'),
+    'file',
   );
   await safeWrite(
     join(home, 'config.toml'),
-    `approval_policy = "never"\nsandbox_mode = "workspace-write"\n[features]\nmulti_agent = false\napps = false\nplugins = false\n[mcp_servers]\n[plugins]\n`,
+    `approval_policy = "never"\nsandbox_mode = "workspace-write"\n[features]\nmulti_agent = false\napps = false\nplugins = false\n[mcp_servers]\n[plugins]\n` +
+      // The elevated Windows sandbox is the only mode that can enforce writes
+      // on this platform; without it Codex degrades to read-only.
+      (process.platform === 'win32' ? `[windows]\nsandbox = "elevated"\n` : ''),
   );
   return home;
 }
@@ -64,15 +95,21 @@ export async function prepareDsh(config: Config, cwd: string) {
   );
   const profile = join(home, 'profiles/acp');
   await mkdir(profile, { recursive: true, mode: 0o700 });
-  await linkExisting(config.dsh.modules, join(home, 'profiles/node_modules'));
+  await linkExisting(
+    config.dsh.modules,
+    join(home, 'profiles/node_modules'),
+    'dir',
+  );
   // Credentials stay in the user's provider store; no Web profile/plugins are inherited.
   await linkExisting(
     join(config.dsh.sourceHome, '.credentials.yaml'),
     join(home, '.credentials.yaml'),
+    'file',
   );
   await linkExisting(
     join(config.dsh.sourceHome, 'llm-deepseek'),
     join(home, 'llm-deepseek'),
+    'dir',
   );
   const manifest = {
     name: 'bridge-acp-profile',
@@ -102,6 +139,7 @@ export async function prepareDsh(config: Config, cwd: string) {
     'tool-workflow',
     'permission',
   ];
+  const sandboxMode = dshSandboxMode();
   const patch = [
     {
       id: 'acp',
@@ -113,9 +151,14 @@ export async function prepareDsh(config: Config, cwd: string) {
     },
     {
       id: 'sandbox-policy',
-      config: { mode: 'workspace-write', workspaceRoot: cwd },
+      config: { mode: sandboxMode, workspaceRoot: cwd },
     },
-    { id: 'approval', config: { policy: 'ask' } },
+    {
+      id: 'approval',
+      config: {
+        policy: sandboxMode === 'danger-full-access' ? 'never' : 'ask',
+      },
+    },
     ...disabled.map((id) => ({ id, disabled: true })),
   ];
   // JSON is valid YAML and does not evaluate expressions from configuration text.

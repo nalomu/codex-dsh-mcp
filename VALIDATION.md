@@ -23,6 +23,25 @@ Both preserved a pre-existing dirty file. DSH ACP handshake/session creation/clo
 
 The final open-source build passed all 15 automated tests and a fresh bidirectional real-model smoke after the hardening changes. The sanitized outcomes are recorded in [docs/validation-results.json](docs/validation-results.json). The repository deliberately excludes raw transcripts, execution-session identifiers, personal directories, account information and local installation state.
 
+## Windows validation
+
+On 2026-10-25 (Asia/Shanghai), Windows with Node.js 24.21.0 and Codex CLI
+0.162.0-alpha.17.2 passed all 15 automated tests and all five doctor checks.
+Both real-model directions completed two rounds (initial implementation and
+continuation); independent host tests passed four tests per direction, and both
+preserved the pre-existing dirty file. These live checks use the task manager
+and production adapters. Separately, both authenticated MCP HTTP endpoints
+passed SDK connection, six-tool discovery, and `agent_list` checks against the
+running background service.
+
+DSH used explicit `CODEX_DSH_DSH_SANDBOX=danger-full-access`; Codex retained
+workspace-write with the elevated Windows sandbox. This does not establish
+DSH workspace-write compatibility for nested piped subprocesses. Windows test
+cleanup retries briefly occupied temporary directories. See
+[sanitized Windows results](docs/windows-validation-results.json) and
+[Windows setup](docs/windows.md). Main desktop client configuration/restart
+is separate from these SDK endpoint checks.
+
 ## Limits of this evidence
 
 These checks cover the stated runtime versions. Changes to Codex/DSH may require regenerated types or adapter updates. The LaunchAgent plist has been syntax-checked; login-time service installation is not part of the automated tests. Shared-directory snapshots do not prove exclusive attribution of file changes, and they do not prevent external editors writing concurrently.

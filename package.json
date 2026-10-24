@@ -37,9 +37,6 @@
     "typescript": "^5.9"
   },
   "license": "MIT",
-  "os": [
-    "darwin"
-  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/nalomu/codex-dsh-mcp.git"

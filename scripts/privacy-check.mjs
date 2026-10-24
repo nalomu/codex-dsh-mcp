@@ -38,6 +38,14 @@ const patterns = [
   ['bearer credential', /Bearer\s+[A-Za-z0-9._~+/=-]{24,}/i],
   ['personal macOS volume', /\/Volumes\/[A-Za-z0-9_. -]+\//],
   ['personal temporary path', /\/(?:private\/)?var\/folders\/[A-Za-z0-9_/-]+/],
+  [
+    'personal Windows home',
+    /[A-Za-z]:[\\/]+Users[\\/]+(?!you[\\/]|user[\\/]|username[\\/]|example[\\/]|<user>[\\/])[^\\/\s"']+[\\/]/i,
+  ],
+  [
+    'Windows temporary path',
+    /[A-Za-z]:[\\/]+(?:Windows[\\/]+Temp|[^\r\n"']*AppData[\\/]+Local[\\/]+Temp)[\\/]/i,
+  ],
 ];
 for (const path of paths) {
   if (

@@ -9,7 +9,7 @@ DSH   → /mcp/dsh   → 持久任务队列 → Codex App Server（stdio）
 
 ## 安装与启动
 
-需要 macOS、Node.js 24+、Git、已登录的 Codex CLI，以及安装了官方 base / acp bundle 的 DSH。MCP SDK 使用 v2；ACP SDK 包虽为 2.0.0，但导入的是默认稳定 **ACP v1** 入口，没有使用实验性 v2 协议。
+需要 macOS 或 Windows、Node.js 24+、Git、已登录的 Codex CLI，以及安装了官方 base / acp bundle 的 DSH。Windows 的运行时路径、沙箱及 PowerShell 操作见 [Windows 安装与验证](docs/windows.md)。MCP SDK 使用 v2；ACP SDK 包虽为 2.0.0，但导入的是默认稳定 **ACP v1** 入口，没有使用实验性 v2 协议。
 
 ```sh
 npm ci

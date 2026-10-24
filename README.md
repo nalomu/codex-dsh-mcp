@@ -14,7 +14,7 @@ The task service runs independently of the caller. Closing a chat or losing an M
 
 ## Requirements
 
-- macOS and Node.js 24 or later. Other platforms are not supported in this release.
+- macOS or Windows and Node.js 24 or later. See [Windows setup (Chinese)](docs/windows.md) for runtime paths, sandbox settings, and PowerShell instructions.
 - Git, an authenticated Codex CLI, and DeepSeek Harness with its official base and ACP bundles installed.
 - Tested runtime versions: Codex CLI `0.162.1`, DSH `0.2.0-rc.2`. The ACP SDK package version is `2.0.0`, but this project imports its stable **ACP v1** entry point, not experimental ACP v2.
 

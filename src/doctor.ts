@@ -8,7 +8,7 @@ import {
   type NewSessionResponse,
 } from '@agentclientprotocol/sdk';
 import { exec, childEnv } from './security.js';
-import { prepareCodex, prepareDsh } from './runtime.js';
+import { prepareCodex, prepareDsh, dshSandboxMode } from './runtime.js';
 import { ManagedProcess } from './process.js';
 import type { Config } from './types.js';
 export async function doctor(config: Config, redact: (v: unknown) => string) {
@@ -64,7 +64,7 @@ export async function doctor(config: Config, redact: (v: unknown) => string) {
     const proc = new ManagedProcess(
       { ...config.dsh, args: [...config.dsh.args, '--profile', 'acp'] },
       cwd,
-      { DSH_HOME: home, DSH_PERMISSION_MODE: 'workspace-write' },
+      { DSH_HOME: home, DSH_PERMISSION_MODE: dshSandboxMode() },
       redact,
       () => {},
     );

@@ -1,10 +1,60 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import {
+  execFileSync,
+  spawn,
+  type ChildProcessWithoutNullStreams,
+} from 'node:child_process';
 import { once } from 'node:events';
 import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import { childEnv, lineSink } from './security.js';
 import type { RuntimeConfig } from './types.js';
+
+const windows = process.platform === 'win32';
+
+/** Resolve a System32 executable without depending on the daemon's PATH. */
+const systemExe = (name: string) => {
+  if (!windows) return name;
+  const root = process.env.SystemRoot ?? process.env.windir ?? 'C:\\Windows';
+  return join(root, 'System32', name);
+};
+
+/** Detect a live Windows PID from `tasklist /FO CSV /NH` output. */
+const windowsAlive = (pid: number) => {
+  try {
+    const out = execFileSync(
+      systemExe('tasklist.exe'),
+      ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'],
+      { encoding: 'utf8', windowsHide: true, timeout: 5000 },
+    );
+    return out
+      .split(/\r?\n/)
+      .some(
+        (line) =>
+          line.trim().startsWith('"') &&
+          line.split('","')[1]?.replaceAll('"', '') === String(pid),
+      );
+  } catch {
+    return false;
+  }
+};
+
+/** Force-terminate a whole Windows process tree; already-dead trees are fine. */
+export const killTree = (pid: number) => {
+  if (!windows) return;
+  try {
+    execFileSync(systemExe('taskkill.exe'), ['/PID', String(pid), '/T', '/F'], {
+      stdio: 'ignore',
+      windowsHide: true,
+      timeout: 15000,
+    });
+  } catch {
+    /* the tree is already gone */
+  }
+};
+
 export const groupAlive = (pid: number) => {
+  if (windows) return windowsAlive(pid);
   try {
     process.kill(-pid, 0);
     return true;
@@ -14,8 +64,10 @@ export const groupAlive = (pid: number) => {
     throw e;
   }
 };
+
 export const delay = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
+
 export class ManagedProcess {
   readonly child: ChildProcessWithoutNullStreams;
   private exit: Promise<unknown>;
@@ -36,7 +88,9 @@ export class ManagedProcess {
       ],
       {
         cwd,
-        detached: true,
+        // POSIX relies on a dedicated process group; Windows uses taskkill /T.
+        detached: !windows,
+        windowsHide: true,
         stdio: ['pipe', 'pipe', 'pipe'],
         env: childEnv({ ...runtime.env, ...env }),
       },
@@ -58,6 +112,18 @@ export class ManagedProcess {
   private async stopInner() {
     const pid = this.child.pid;
     if (!pid) return;
+    if (windows) {
+      // No POSIX process groups: terminate the supervisor's whole tree, then
+      // verify nothing survives before the workspace lock is released.
+      killTree(pid);
+      await Promise.race([this.exit, delay(1000)]);
+      if (groupAlive(pid)) killTree(pid);
+      await Promise.race([this.exit, delay(10000)]);
+      for (let i = 0; i < 100 && groupAlive(pid); i++) await delay(50);
+      if (groupAlive(pid))
+        throw new Error(`WORKER_NOT_STOPPED: process tree ${pid}`);
+      return;
+    }
     try {
       process.kill(-pid, 'SIGTERM');
     } catch (e) {
@@ -82,6 +148,7 @@ export class ManagedProcess {
       throw new Error(`WORKER_NOT_STOPPED: process group ${pid}`);
   }
 }
+
 export class Rpc {
   private next = 1;
   private pending = new Map<

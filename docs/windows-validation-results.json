@@ -1,0 +1,42 @@
+{
+  "checkedAt": "2026-10-24T20:13:45.351Z",
+  "platform": "Windows",
+  "node": "v24.21.0",
+  "codex": "codex-cli 0.162.0-alpha.17.2",
+  "dsh": "0.1.7-rc.2",
+  "dshSandbox": "danger-full-access",
+  "codexSandbox": "workspace-write / windows elevated",
+  "automated": {
+    "tests": 15,
+    "passed": 15,
+    "failed": 0
+  },
+  "doctor": {
+    "checks": 5,
+    "passed": 5
+  },
+  "live": [
+    {
+      "caller": "codex",
+      "target": "dsh",
+      "roundsPassed": 2,
+      "state": "succeeded",
+      "independentHostTestsPassed": 4,
+      "preExistingEditPreserved": true
+    },
+    {
+      "caller": "dsh",
+      "target": "codex",
+      "roundsPassed": 2,
+      "state": "succeeded",
+      "independentHostTestsPassed": 4,
+      "preExistingEditPreserved": true
+    }
+  ],
+  "mcp": {
+    "authenticatedEndpoints": 2,
+    "toolsPerEndpoint": 6,
+    "agentListVerified": true
+  },
+  "privacy": "Raw transcripts, execution identifiers, account data and machine paths are excluded."
+}

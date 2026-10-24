@@ -54,7 +54,13 @@ export async function setup(executors?: Record<Caller, Executor>) {
     async close() {
       await manager?.close();
       store.close();
-      await rm(root, { recursive: true, force: true });
+      await rm(root, {
+        recursive: true,
+        force: true,
+        // Windows can briefly retain Git/process handles after a test finishes.
+        maxRetries: process.platform === 'win32' ? 5 : 0,
+        retryDelay: 100,
+      });
     },
   };
 }

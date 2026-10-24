@@ -84,8 +84,14 @@ async function main() {
       `export CODEX_DSH_BRIDGE_TOKEN='${config.tokens.codex}'\nexport DSH_CODEX_BRIDGE_TOKEN='${config.tokens.dsh}'\n`,
       { mode: 0o600 },
     );
+    const psQuote = (s: string) => "'" + s.replaceAll("'", "''") + "'";
+    await writeFile(
+      join(destination, 'tokens.ps1'),
+      `$env:CODEX_DSH_BRIDGE_TOKEN = ${psQuote(config.tokens.codex)}\n$env:DSH_CODEX_BRIDGE_TOKEN = ${psQuote(config.tokens.dsh)}\n`,
+      { mode: 0o600 },
+    );
     console.log(
-      `Connection files generated in ${destination}; tokens were not printed. Source tokens.env before launching clients.`,
+      `Connection files generated in ${destination}; tokens were not printed. Load ${process.platform === 'win32' ? 'tokens.ps1' : 'tokens.env'} before launching clients.`,
     );
     return;
   }
@@ -102,7 +108,12 @@ async function main() {
     const child = spawn(
       process.execPath,
       [cli, 'serve', '--config', configPath],
-      { detached: true, stdio: ['ignore', log.fd, log.fd], env: process.env },
+      {
+        detached: true,
+        windowsHide: true,
+        stdio: ['ignore', log.fd, log.fd],
+        env: process.env,
+      },
     );
     child.unref();
     await log.close();
@@ -138,6 +149,10 @@ async function main() {
     throw new Error('STOP_TIMEOUT');
   }
   if (command === 'launchd-install' || command === 'launchd-uninstall') {
+    if (process.platform === 'win32')
+      throw new Error(
+        'UNSUPPORTED_PLATFORM: launchd is macOS only; use start/stop or Task Scheduler',
+      );
     const label = 'local.codex-dsh-bridge';
     const path = join(homedir(), 'Library/LaunchAgents', label + '.plist');
     const domain = `gui/${process.getuid!()}`;
@@ -169,9 +184,17 @@ async function main() {
     return;
   }
   if (command !== 'serve') throw new Error('Unknown command: ' + command);
-  process.umask(0o077);
+  try {
+    process.umask(0o077);
+  } catch {
+    /* Windows has no POSIX umask */
+  }
   await mkdir(config.stateDir, { recursive: true, mode: 0o700 });
-  await chmod(config.stateDir, 0o700);
+  try {
+    await chmod(config.stateDir, 0o700);
+  } catch (e) {
+    if (process.platform !== 'win32') throw e;
+  }
   const release = await acquireLease(config.stateDir);
   const store = new Store(join(config.stateDir, 'tasks.sqlite'));
   try {
