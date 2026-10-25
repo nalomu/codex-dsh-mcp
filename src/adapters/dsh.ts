@@ -10,6 +10,9 @@ import {
 import { ManagedProcess } from '../process.js';
 import { prepareDsh, dshSandboxMode } from '../runtime.js';
 import { withDeadline } from '../deadline.js';
+import { dshPermissionGuard } from '../dsh-permission.js';
+import { executionDetails } from '../progress.js';
+import { workerPrompt } from '../coordination.js';
 import type { Config, Executor, Execution } from '../types.js';
 export class DshExecutor implements Executor {
   constructor(
@@ -18,15 +21,19 @@ export class DshExecutor implements Executor {
   ) {}
   async run(input: Execution) {
     const home = await prepareDsh(this.config, input.cwd);
+    const permission = dshPermissionGuard(this.config);
     const proc = new ManagedProcess(
       {
         ...this.config.dsh,
         args: [...this.config.dsh.args, '--profile', 'acp'],
       },
       input.cwd,
-      { DSH_HOME: home, DSH_PERMISSION_MODE: dshSandboxMode() },
+      { DSH_HOME: home, DSH_PERMISSION_MODE: dshSandboxMode(this.config) },
       this.redact,
-      (s) => input.emit('stderr', s),
+      (s) => {
+        permission.stderr(s);
+        input.emit('stderr', s);
+      },
     );
     input.worker(proc.pid);
     let result = '';
@@ -65,6 +72,16 @@ export class DshExecutor implements Executor {
           id: u.toolCallId,
           ...('title' in u ? { title: u.title } : {}),
           ...('status' in u ? { status: u.status } : {}),
+          ...executionDetails(
+            {
+              ...('kind' in u ? { kind: u.kind } : {}),
+              ...('rawInput' in u ? { input: u.rawInput } : {}),
+              ...('rawOutput' in u ? { output: u.rawOutput } : {}),
+              ...('content' in u ? { content: u.content } : {}),
+              ...('locations' in u ? { locations: u.locations } : {}),
+            },
+            this.redact,
+          ),
         });
     });
     let cx: ClientConnection | undefined;
@@ -132,9 +149,16 @@ export class DshExecutor implements Executor {
       const sessionId = input.sessionId ?? created!.sessionId;
       activeSession = sessionId;
       input.session(sessionId);
+      // Auto mode is usable only after the helper confirmed a session was
+      // published with the official reviewer active. A missing acknowledgement
+      // fails the task before any prompt is sent; it never downgrades silently.
+      await permission.verify();
       const prompt = await agent.request<PromptResponse>(
         'session/prompt',
-        { sessionId, prompt: [{ type: 'text', text: input.prompt }] },
+        {
+          sessionId,
+          prompt: [{ type: 'text', text: workerPrompt(input.prompt) }],
+        },
         { cancellationSignal: input.signal },
       );
       await withDeadline(

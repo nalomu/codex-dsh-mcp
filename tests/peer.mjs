@@ -131,8 +131,10 @@ createInterface({ input: process.stdin }).on('line', (line) => {
   }
   if (m.method === 'session/close') return ok(m.id, {});
   if (['session/prompt', 'turn/start'].includes(m.method)) {
-    const prompt =
+    let prompt =
       mode === 'dsh' ? m.params.prompt[0].text : m.params.input[0].text;
+    if (prompt.includes('\n--- BRIDGE TASK ---\n'))
+      prompt = prompt.split('\n--- BRIDGE TASK ---\n').at(-1);
     promptRequest = m.id;
     if (mode === 'codex') ok(m.id, { turn: { id: 'turn-1' } });
     if (prompt === 'permission')
@@ -165,6 +167,73 @@ createInterface({ input: process.stdin }).on('line', (line) => {
       return;
     }
     count++;
+    if (prompt === 'observe') {
+      if (mode === 'dsh') {
+        send({
+          method: 'session/update',
+          params: {
+            sessionId: session,
+            update: {
+              sessionUpdate: 'tool_call',
+              toolCallId: 'visible-command',
+              title: 'node test',
+              kind: 'execute',
+              status: 'in_progress',
+              rawInput: { command: 'node --test' },
+            },
+          },
+        });
+        send({
+          method: 'session/update',
+          params: {
+            sessionId: session,
+            update: {
+              sessionUpdate: 'tool_call_update',
+              toolCallId: 'visible-command',
+              status: 'completed',
+              rawOutput: {
+                stdout: '4 passed',
+                apiKey: 'fixture-progress-private-key',
+              },
+              content: [
+                {
+                  type: 'content',
+                  content: { type: 'text', text: '4 passed' },
+                },
+              ],
+            },
+          },
+        });
+      } else {
+        send({
+          method: 'item/started',
+          params: {
+            threadId: session,
+            item: {
+              type: 'commandExecution',
+              id: 'visible-command',
+              command: 'node --test',
+              cwd: process.cwd(),
+              status: 'inProgress',
+            },
+          },
+        });
+        send({
+          method: 'item/completed',
+          params: {
+            threadId: session,
+            item: {
+              type: 'commandExecution',
+              id: 'visible-command',
+              command: 'node --test',
+              status: 'completed',
+              aggregatedOutput: '4 passed',
+              exitCode: 0,
+            },
+          },
+        });
+      }
+    }
     writeFileSync('.fixture-count', String(count));
     writeFileSync('result.txt', `${mode}:${count}`);
     setTimeout(

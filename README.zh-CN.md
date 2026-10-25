@@ -45,14 +45,15 @@ DSH 使用独立 `DSH_HOME`，仅组合官方 base 与 ACP bundle；不会继承
 
 ## 使用工具
 
-| 工具             | 主要输入                               | 返回                            |
-| ---------------- | -------------------------------------- | ------------------------------- |
-| `agent_run`      | `prompt`, `cwd`, `idempotencyKey`      | `{task}`，立即返回              |
-| `agent_status`   | `taskId`, `after=0`, `limit=100`       | task、事件、nextCursor、hasMore |
-| `agent_wait`     | `taskId`, `after=0`, `timeoutMs=25000` | 新事件、终态或超时后的状态      |
-| `agent_continue` | `taskId`, `prompt`, `idempotencyKey`   | 原任务的新轮次                  |
-| `agent_cancel`   | `taskId`                               | 执行器已停止后的 task           |
-| `agent_list`     | `cursor=0`, `limit=20`                 | 本调用方任务、nextCursor        |
+| 工具                 | 主要输入                                          | 返回                             |
+| -------------------- | ------------------------------------------------- | -------------------------------- |
+| `agent_run`          | `prompt`, `cwd`, `idempotencyKey`                 | `{task}`，立即返回               |
+| `agent_status`       | `taskId`, `after=0`, `limit=20`, `detail=compact` | 精简状态与汇报；full 按需查日志  |
+| `agent_wait`         | `taskId`, `after=0`, `timeoutMs=25000`            | 新事件、终态或超时后的状态       |
+| `agent_continue`     | `taskId`, `prompt`, `idempotencyKey`              | 原任务的新轮次                   |
+| `agent_send_message` | `taskId`, `text`, `idempotencyKey`                | 持久消息；运行中排队，空闲时续做 |
+| `agent_cancel`       | `taskId`                                          | 执行器已停止后的 task            |
+| `agent_list`         | `cursor=0`, `limit=20`                            | 本调用方任务、nextCursor         |
 
 创建示例：
 
@@ -68,7 +69,19 @@ DSH 使用独立 `DSH_HOME`，仅组合官方 base 与 ACP bundle；不会继承
 
 `agent_run` 的幂等键按调用方隔离；同键同请求返回原任务，同键不同请求报 `IDEMPOTENCY_CONFLICT`。`agent_continue` 的键按任务隔离。运行中的会话不能接受不同键的新轮次，会报 `TASK_BUSY`。每轮的结果、错误及 Git 快照都留在 `rounds` 中。
 
-状态为 `queued / running / succeeded / failed / cancelled / interrupted`。`succeeded` 表示执行轮次正常结束；是否符合需求必须由主任务检查实际文件和测试决定。权限拒绝、协议失败、异常断线或异常停止原因均不会伪装成功。
+状态为 `queued / running / waiting / succeeded / failed / cancelled / interrupted`。`waiting` 表示子任务已结束当前执行轮次、等待主控答复，目录锁继续保留；可发消息答复或取消。等待也计入任务超时。`succeeded` 表示执行轮次正常结束；是否符合需求必须由主任务检查实际文件和测试决定。权限拒绝、协议失败、异常断线或异常停止原因均不会伪装成功。
+
+## 在主聊天查看进展与反馈
+
+默认 `agent_wait`、`agent_status` 和 `agent_list` 返回精简状态，包含关键生命周期事件、子任务的短汇报/问题以及最近结果，不重复历史提示词、所有轮次和 Git 快照，也不自动回传工具日志。子任务使用 `bridge-message` 文本块发送 `progress / question / result` 汇报，每条最多 1,000 字符；由执行器注入格式说明，不需要额外 DSH 插件或子会话 MCP。普通文字和工具细节仍留在本地数据库。
+
+只有排查问题时才传 `detail: "full"`，按游标获取完整消息、工具参数/输出及快照。工具详情先脱敏，再限制为每条最多 16,000 个字符；截断时返回 `truncated: true`，二进制内容省略。Shell 输出在执行器报告工具结果时返回，不承诺逐字符实时输出。
+
+主聊天由主 Agent 读取关键汇报并做决策，不会创建 Codex 原生子代理侧栏。持续汇报需要主 Agent 调用 `agent_wait`，不是后台自动推送；默认忽略工具日志的变化，避免每个日志片段都唤醒主模型。精简游标会跳过隐藏日志，若要追查旧日志请在 full 模式使用原来的历史游标。
+
+主控通过 `agent_send_message` 投递反馈或答复。运行中投递的消息会持久化排队，**在当前模型执行轮次结束后**，由执行器在同一会话的下一轮交付；不会打断正在运行的 Shell，也不支持逐工具节点即时插话。子任务发出 question 并结束本轮后会进入 waiting，直到答复、取消或超时。空闲任务收到新消息会自动创建一个续做轮次；幂等键避免重复投递。每条父消息最多 4,000 字符，待交付队列最多 32 条，每个任务轮次最多自动接续 16 次，避免无限互聊。
+
+消息在执行器成功结束对应轮次后标记交付；失败或崩溃可能留下待交付消息，不自动重试失败任务。恢复后检查文件，再显式续做；不要将它当作外部操作的恰好一次保证。仍可使用 `agent_continue` 发起明确的新轮次，以及 `agent_cancel` 停止任务。任务完成后需检查实际文件与测试。
 
 ## 共享文件、权限与恢复
 

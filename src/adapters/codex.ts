@@ -3,6 +3,8 @@ import { prepareCodex } from '../runtime.js';
 import type { Config, Executor, Execution } from '../types.js';
 import type { ThreadStartParams } from '../generated/codex/v2/ThreadStartParams.js';
 import type { TurnStartParams } from '../generated/codex/v2/TurnStartParams.js';
+import { executionDetails } from '../progress.js';
+import { workerInstructions } from '../coordination.js';
 export class CodexExecutor implements Executor {
   constructor(
     readonly config: Config,
@@ -97,6 +99,14 @@ export class CodexExecutor implements Executor {
           type: p.item?.type,
           id: p.item?.id,
           status: p.item?.status,
+          ...([
+            'commandExecution',
+            'fileChange',
+            'mcpToolCall',
+            'dynamicToolCall',
+          ].includes(p.item?.type)
+            ? executionDetails(p.item, this.redact)
+            : {}),
         });
     };
     proc.child.stdout.once('end', () => {
@@ -132,7 +142,7 @@ export class CodexExecutor implements Executor {
           features: { multi_agent: false, apps: false, plugins: false },
         },
         developerInstructions:
-          'You are a delegated worker. Do not delegate, commit, reset, revert, clean, merge or change permissions. Preserve pre-existing edits. Report changed files and tests.',
+          workerInstructions + ' Do not reset, revert, clean or merge.',
       };
       const response = sessionId
         ? await rpc.request('thread/resume', {

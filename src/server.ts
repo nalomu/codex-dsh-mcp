@@ -5,10 +5,12 @@ import { toNodeHandler } from '@modelcontextprotocol/node';
 import { z } from 'zod/v4';
 import type { Config, Caller } from './types.js';
 import type { Manager } from './manager.js';
+import { compactTask } from './coordination.js';
 const id = z.string().uuid();
 const cursor = z.number().int().nonnegative().default(0);
 const key = z.string().min(1).max(200);
 const prompt = z.string().min(1).max(100000);
+const detail = z.enum(['compact', 'full']).default('compact');
 function equal(a: string, b: string) {
   const x = Buffer.from(a),
     y = Buffer.from(b);
@@ -20,7 +22,7 @@ export function mcpFactory(manager: Manager, caller: Caller) {
       { name: 'codex-dsh-bridge', version: '0.1.0' },
       {
         instructions:
-          'Delegate only user-authorized work. Tasks directly edit a shared directory. Stop editing that project while a delegated task is queued or running. Use agent_wait until terminal, inspect real diff and tests, then continue the same task if needed. Execution completion does not imply acceptance. Delegated sessions cannot delegate again.',
+          'Delegate only user-authorized work. Tasks directly edit a shared directory; do not edit it while the task is queued, running or waiting. Default compact responses contain only lifecycle events and short worker reports, not execution logs. Use agent_wait with nextCursor and drain pages. Use detail=full only to investigate a specific problem. Reply to worker questions or send guidance with agent_send_message; delivery is at the end of the current execution turn, not an immediate tool interruption. A waiting task requires a reply or cancellation. Sending to an idle task starts another round; inspect edits first. Avoid unnecessary supervisor-worker chatter. Delegated sessions cannot delegate again.',
       },
     );
     const tool = (
@@ -52,19 +54,20 @@ export function mcpFactory(manager: Manager, caller: Caller) {
       (a) =>
         manager
           .run(caller, a.prompt, a.cwd, a.idempotencyKey)
-          .then((task) => ({ task })),
+          .then((task) => ({ task: compactTask(task) })),
     );
     tool(
       'agent_status',
-      'Read task state, result, snapshots and paginated events. Only this caller owns its tasks.',
+      'Read compact state and short reports by default. Request detail=full only for historical prompts, execution logs and snapshots.',
       z
         .object({
           taskId: id,
           after: cursor,
-          limit: z.number().int().min(1).max(200).default(100),
+          limit: z.number().int().min(1).max(200).default(20),
+          detail,
         })
         .strict(),
-      (a) => manager.status(caller, a.taskId, a.after, a.limit),
+      (a) => manager.observe(caller, a.taskId, a.after, a.limit, a.detail),
     );
     tool(
       'agent_wait',
@@ -74,9 +77,10 @@ export function mcpFactory(manager: Manager, caller: Caller) {
           taskId: id,
           after: cursor,
           timeoutMs: z.number().int().min(0).max(25000).default(25000),
+          detail,
         })
         .strict(),
-      (a) => manager.wait(caller, a.taskId, a.after, a.timeoutMs),
+      (a) => manager.wait(caller, a.taskId, a.after, a.timeoutMs, a.detail),
     );
     tool(
       'agent_continue',
@@ -85,21 +89,45 @@ export function mcpFactory(manager: Manager, caller: Caller) {
       (a) =>
         manager
           .continue(caller, a.taskId, a.prompt, a.idempotencyKey)
-          .then((task) => ({ task })),
+          .then((task) => ({ task: compactTask(task) })),
     );
     tool(
       'agent_cancel',
       'Cancel queued or running work and wait until its worker process group has stopped.',
       z.object({ taskId: id }).strict(),
-      (a) => manager.cancel(caller, a.taskId).then((task) => ({ task })),
+      (a) =>
+        manager
+          .cancel(caller, a.taskId)
+          .then((task) => ({ task: compactTask(task) })),
+    );
+    tool(
+      'agent_send_message',
+      'Send up to 4000 characters of feedback or a reply to this task. Messages are durable and delivered after the current turn. Sending to an idle task starts a new round; a repeated idempotencyKey never duplicates delivery.',
+      z
+        .object({
+          taskId: id,
+          text: z.string().min(1).max(4000),
+          idempotencyKey: key,
+        })
+        .strict(),
+      (a) => manager.send(caller, a.taskId, a.text, a.idempotencyKey),
     );
     tool(
       'agent_list',
       'List tasks created by this caller, in creation order.',
       z
-        .object({ cursor, limit: z.number().int().min(1).max(100).default(20) })
+        .object({
+          cursor,
+          limit: z.number().int().min(1).max(100).default(20),
+          detail,
+        })
         .strict(),
-      (a) => manager.store.list(caller, a.cursor, a.limit),
+      (a) => {
+        const page = manager.store.list(caller, a.cursor, a.limit);
+        return a.detail === 'full'
+          ? page
+          : { ...page, tasks: page.tasks.map(compactTask) };
+      },
     );
     return server;
   };

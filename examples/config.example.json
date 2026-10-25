@@ -18,6 +18,8 @@
     "env": {},
     "provider": "deepseek-official",
     "model": "deepseek-v4-flash",
+    "permissionMode": "workspace-write",
+    "moduleSource": "external",
     "sourceHome": "/Users/you/.dsh",
     "modules": "/Users/you/.dsh/profiles/node_modules"
   },

@@ -8,10 +8,17 @@ import {
   type NewSessionResponse,
 } from '@agentclientprotocol/sdk';
 import { exec, childEnv } from './security.js';
-import { prepareCodex, prepareDsh, dshSandboxMode } from './runtime.js';
+import {
+  prepareCodex,
+  prepareDsh,
+  dshPermissionMode,
+  dshSandboxMode,
+} from './runtime.js';
 import { ManagedProcess } from './process.js';
+import { dshPermissionGuard } from './dsh-permission.js';
 import type { Config } from './types.js';
 export async function doctor(config: Config, redact: (v: unknown) => string) {
+  const permissionMode = dshPermissionMode(config);
   const checks: { name: string; ok: boolean; detail: string }[] = [];
   const check = async (name: string, fn: () => Promise<string>) => {
     try {
@@ -61,12 +68,18 @@ export async function doctor(config: Config, redact: (v: unknown) => string) {
   await check('dsh-acp-model', async () => {
     const cwd = config.allowedRoots[0]!;
     const home = await prepareDsh(config, cwd);
+    const permission = dshPermissionGuard(config);
+    const diagnostics: string[] = [];
     const proc = new ManagedProcess(
       { ...config.dsh, args: [...config.dsh.args, '--profile', 'acp'] },
       cwd,
-      { DSH_HOME: home, DSH_PERMISSION_MODE: dshSandboxMode() },
+      { DSH_HOME: home, DSH_PERMISSION_MODE: dshSandboxMode(config) },
       redact,
-      () => {},
+      (s) => {
+        permission.stderr(s);
+        diagnostics.push(s);
+        if (diagnostics.length > 8) diagnostics.shift();
+      },
     );
     const app = new ClientApp();
     app.onRequest('session/request_permission', () => ({
@@ -100,7 +113,15 @@ export async function doctor(config: Config, redact: (v: unknown) => string) {
       )
         throw new Error('DSH_MODEL_CONFIGURATION_MISMATCH');
       await cx.agent.request('session/close', { sessionId: session.sessionId });
-      return `ACP v1 session creation/close OK; configured ${config.dsh.provider}/${config.dsh.model}; inference not checked`;
+      // In Auto mode the helper plugin acknowledges session initialization over
+      // stderr; without it the session could accept unreviewed work, so this
+      // preflight fails rather than reporting a usable runtime.
+      await permission.verify();
+      return `ACP v1 session creation/close OK; configured ${config.dsh.provider}/${config.dsh.model}; permissions ${permissionMode}${permissionMode === 'auto' ? ' (Auto review activation confirmed)' : ''}; inference not checked`;
+    } catch (e) {
+      throw new Error(
+        `${String(e)}${diagnostics.length ? '\n' + diagnostics.join('') : ''}`,
+      );
     } finally {
       clearTimeout(timeout);
       cx.close();

@@ -14,19 +14,40 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { Config } from './types.js';
 
 /**
- * DSH sandbox mode for delegated sessions. The Windows ACL backend cannot
- * spawn piped grandchildren (documented limitation), so builds/commands like
- * `node --test` fail under workspace-write there; opt into danger-full-access
- * explicitly for Windows bridges.
+ * Effective DSH permission mode for delegated sessions. Explicit configuration
+ * wins over the legacy `CODEX_DSH_DSH_SANDBOX` environment variable, which wins
+ * over the `workspace-write` default.
+ *
+ * `auto` is the official Auto review preset: danger-full-access execution plus
+ * a per-tool LLM review. It is not a sandbox mode, which is why
+ * {@link dshSandboxMode} maps it to danger-full-access for the composition.
+ *
+ * The Windows ACL backend cannot spawn piped grandchildren (documented
+ * limitation), so builds/commands like `node --test` fail under
+ * workspace-write there; opt into danger-full-access explicitly for Windows
+ * bridges.
  */
-export const dshSandboxMode = () => {
-  const mode = process.env.CODEX_DSH_DSH_SANDBOX ?? 'workspace-write';
-  if (!['read-only', 'workspace-write', 'danger-full-access'].includes(mode))
+export const dshPermissionMode = (config?: Config) => {
+  const mode =
+    config?.dsh.permissionMode ??
+    process.env.CODEX_DSH_DSH_SANDBOX ??
+    'workspace-write';
+  if (
+    !['read-only', 'workspace-write', 'danger-full-access', 'auto'].includes(
+      mode,
+    )
+  )
     throw new Error(
-      'CODEX_DSH_DSH_SANDBOX must be read-only, workspace-write or danger-full-access',
+      'DSH permission mode must be read-only, workspace-write, danger-full-access or auto',
     );
   return mode;
 };
+export const dshSandboxMode = (config?: Config) => {
+  const mode = dshPermissionMode(config);
+  return mode === 'auto' ? 'danger-full-access' : mode;
+};
+/** Official per-tool LLM review bundle providing the `auto` permission preset. */
+const AUTO_REVIEW_BUNDLE = '@deepseek-ai/dsh-experimental-auto-review';
 async function linkExisting(
   source: string,
   target: string,
@@ -88,18 +109,33 @@ export async function prepareCodex(config: Config) {
   return home;
 }
 export async function prepareDsh(config: Config, cwd: string) {
+  const mode = dshPermissionMode(config);
+  const auto = mode === 'auto';
+  // A bundled profile does not mount the configured external modules directory
+  // at all, so it must not reuse an isolated home created for one: DSH resolves
+  // selected bundles from the running installation first and from the profile
+  // directory second, and a reused home would keep the other layout's state.
+  const bundled = config.dsh.moduleSource === 'bundled';
   const home = join(
     config.stateDir,
     'dsh-homes',
-    createHash('sha256').update(cwd).digest('hex').slice(0, 20),
+    createHash('sha256')
+      .update(cwd + (bundled ? '\0bundled' : ''))
+      .digest('hex')
+      .slice(0, 20),
   );
   const profile = join(home, 'profiles/acp');
   await mkdir(profile, { recursive: true, mode: 0o700 });
-  await linkExisting(
-    config.dsh.modules,
-    join(home, 'profiles/node_modules'),
-    'dir',
-  );
+  // `external` keeps the 0.1.x layout: the pre-installed module directory is
+  // mounted as the profile's node_modules fallback. `bundled` relies on the
+  // launcher's own installation (Desktop carries its complete runtime), which
+  // avoids mixing another version's modules with the running runtime.
+  if (!bundled)
+    await linkExisting(
+      config.dsh.modules,
+      join(home, 'profiles/node_modules'),
+      'dir',
+    );
   // Credentials stay in the user's provider store; no Web profile/plugins are inherited.
   await linkExisting(
     join(config.dsh.sourceHome, '.credentials.yaml'),
@@ -117,7 +153,11 @@ export async function prepareDsh(config: Config, cwd: string) {
     type: 'module',
     dsh: {
       profile: {
-        bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-acp-app'],
+        bundles: [
+          '@deepseek-ai/dsh-base',
+          '@deepseek-ai/dsh-acp-app',
+          ...(auto ? [AUTO_REVIEW_BUNDLE] : []),
+        ],
       },
     },
   };
@@ -127,6 +167,9 @@ export async function prepareDsh(config: Config, cwd: string) {
   );
   // Only official base + ACP are composed. Disallow runtime plugin installation,
   // permission switching and subagent tools as well as external MCP mounts.
+  // Auto mode keeps the permission-preset row: it owns the durable preset/knob
+  // write path the Auto helper uses, and the Auto review bundle registers the
+  // `auto` preset on it.
   const disabled = [
     'plugin-manager',
     'tool-plugin-manager',
@@ -137,9 +180,9 @@ export async function prepareDsh(config: Config, cwd: string) {
     'tool-subagent-list-agents',
     'tool-ralph',
     'tool-workflow',
-    'permission',
+    ...(auto ? [] : ['permission']),
   ];
-  const sandboxMode = dshSandboxMode();
+  const sandboxMode = dshSandboxMode(config);
   const patch = [
     {
       id: 'acp',
@@ -160,6 +203,20 @@ export async function prepareDsh(config: Config, cwd: string) {
       },
     },
     ...disabled.map((id) => ({ id, disabled: true })),
+    ...(auto
+      ? [
+          {
+            insert: [
+              {
+                id: 'bridge-auto-review',
+                // Absolute file URL: the helper stays in this installation and
+                // is never copied into, or imported from, the DSH home.
+                name: new URL('./dsh-auto-review.js', import.meta.url).href,
+              },
+            ],
+          },
+        ]
+      : []),
   ];
   // JSON is valid YAML and does not evaluate expressions from configuration text.
   await safeWrite(

@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events';
 import { Store } from './store.js';
 import { overlaps, workspace, snapshot } from './security.js';
 import { terminal, type Caller, type Task, type Executor } from './types.js';
+import { ReportDecoder, compactTask } from './coordination.js';
 export class Manager {
   readonly changes = new EventEmitter();
   private active = new Map<
@@ -128,9 +129,50 @@ export class Manager {
       hasMore: events.length === limit,
     };
   }
-  async wait(caller: Caller, id: string, after = 0, timeout = 25000) {
+  observe(
+    caller: Caller,
+    id: string,
+    after = 0,
+    limit = 20,
+    detail = 'compact',
+  ) {
+    if (detail === 'full') return this.status(caller, id, after, limit);
+    const task = this.owned(caller, id);
+    const page = this.store.compactEvents(id, after, limit);
+    return {
+      task: {
+        ...compactTask(task),
+        pendingMessages: this.store.pending(id).length,
+      },
+      ...page,
+      events: page.events.map((e) => ({
+        ...e,
+        data:
+          e.kind === 'report'
+            ? e.data
+            : e.kind === 'waiting'
+              ? { awaitingReply: true }
+              : e.kind.startsWith('mail_')
+                ? e.data
+                : e.kind === 'failed'
+                  ? { error: String(e.data.error ?? '').slice(0, 1000) }
+                  : {},
+      })),
+    };
+  }
+  async wait(
+    caller: Caller,
+    id: string,
+    after = 0,
+    timeout = 25000,
+    detail = 'full',
+  ) {
+    const read = () =>
+      detail === 'full'
+        ? this.status(caller, id, after)
+        : this.observe(caller, id, after, 20, detail);
     const ready = () => {
-      const s = this.status(caller, id, after);
+      const s = read();
       return s.events.length > 0 || terminal(s.task.state);
     };
     if (!ready())
@@ -147,7 +189,72 @@ export class Manager {
         this.changes.on(id, check);
         check();
       });
-    return this.status(caller, id, after);
+    return read();
+  }
+  async send(caller: Caller, id: string, text: string, key: string) {
+    if (this.stopping) throw new Error('SERVICE_STOPPING');
+    const task = this.owned(caller, id);
+    const receipt = this.store.enqueue(
+      id,
+      key,
+      createHash('sha256').update(text).digest('hex'),
+      this.redact(text),
+    );
+    if (receipt.created)
+      this.persist(task, 'mail_queued', {
+        messageId: receipt.message.id,
+        delivery: 'turn-boundary',
+      });
+    const active = this.active.get(id);
+    if (receipt.created && active) {
+      void active.done
+        .then(async () => {
+          if (this.stopping || !this.store.pending(id).length) return;
+          const latest = this.owned(caller, id);
+          if (latest.state === 'succeeded')
+            await this.resumeMailbox(caller, id);
+        })
+        .catch((e) => {
+          if (!this.stopping)
+            this.persist(this.owned(caller, id), 'mail_resume_failed', {
+              error: this.redact(String(e)).slice(0, 1000),
+            });
+        });
+    } else if (receipt.created && terminal(task.state))
+      await this.resumeMailbox(caller, id);
+    return {
+      messageId: receipt.message.id,
+      delivery: receipt.message.deliveredAt ? 'delivered' : 'queued',
+      boundary: 'end-of-turn',
+      task: compactTask(this.owned(caller, id)),
+    };
+  }
+  private async resumeMailbox(caller: Caller, id: string) {
+    const task = this.owned(caller, id);
+    const pending = this.store.pending(id);
+    if (!pending.length || !terminal(task.state)) return;
+    await this.continue(
+      caller,
+      id,
+      'Process the queued supervisor messages below. Preserve the original task constraints.',
+      'mail-' + pending[0]!.id,
+    );
+  }
+  private async waitForMail(id: string, signal: AbortSignal) {
+    if (this.store.pending(id).length || signal.aborted) return;
+    await new Promise<void>((resolve) => {
+      const finish = () => {
+        this.changes.off(id, check);
+        signal.removeEventListener('abort', finish);
+        resolve();
+      };
+      const check = () => {
+        if (this.store.pending(id).length || signal.aborted) finish();
+      };
+      this.changes.on(id, check);
+      signal.addEventListener('abort', finish, { once: true });
+      check();
+    });
   }
   async cancel(caller: Caller, id: string) {
     const t = this.owned(caller, id);
@@ -207,21 +314,67 @@ export class Manager {
       round.before = await snapshot(t.cwd);
       this.persist(t, 'running', { before: round.before });
       if (abort.signal.aborted) throw abort.signal.reason;
-      const result = await this.executors[t.target].run({
-        cwd: t.cwd,
-        sessionId: t.sessionId,
-        prompt: round.prompt,
-        signal: abort.signal,
-        emit: (kind, data) => this.persist(t, kind, data),
-        session: (id) => {
-          t.sessionId = id;
-          this.persist(t, 'session', { sessionId: id });
-        },
-        worker: (pid) => {
-          t.workerPid = pid;
-          this.persist(t, 'worker', { pid });
-        },
-      });
+      let result = '';
+      let nextPrompt = round.prompt;
+      for (let segment = 0; ; segment++) {
+        if (segment >= 16)
+          throw new Error(
+            'MESSAGE_TURN_LIMIT: inspect the task and continue explicitly',
+          );
+        const inbox = this.store.pending(t.id);
+        const decoder = new ReportDecoder((report) =>
+          this.persist(t, 'report', report),
+        );
+        result = await this.executors[t.target].run({
+          cwd: t.cwd,
+          sessionId: t.sessionId,
+          prompt:
+            nextPrompt +
+            (inbox.length
+              ? '\n\nSupervisor messages (in delivery order):\n' +
+                inbox.map((m) => `[message ${m.id}] ${m.text}`).join('\n')
+              : ''),
+          signal: abort.signal,
+          emit: (kind, data) => {
+            this.persist(t, kind, data);
+            if (kind === 'message' && typeof data === 'string')
+              decoder.write(data);
+          },
+          session: (id) => {
+            t.sessionId = id;
+            this.persist(t, 'session', { sessionId: id });
+          },
+          worker: (pid) => {
+            t.workerPid = pid;
+            this.persist(t, 'worker', { pid });
+          },
+        });
+        if (!decoder.last) decoder.write(result);
+        delete t.workerPid;
+        if (inbox.length) {
+          this.store.delivered(inbox.map((m) => m.id));
+          this.persist(t, 'mail_delivered', {
+            messageIds: inbox.map((m) => m.id),
+          });
+        }
+        if (abort.signal.aborted) throw abort.signal.reason;
+        if (
+          decoder.last?.kind === 'question' &&
+          !this.store.pending(t.id).length
+        ) {
+          t.state = 'waiting';
+          round.state = 'waiting';
+          this.persist(t, 'waiting', { question: decoder.last.text });
+          await this.waitForMail(t.id, abort.signal);
+          if (abort.signal.aborted) throw abort.signal.reason;
+        }
+        if (!this.store.pending(t.id).length) break;
+        t.state = 'running';
+        round.state = 'running';
+        this.persist(t, 'running', { mailboxContinuation: true });
+        nextPrompt =
+          'Respond to the supervisor messages below and continue the same task. Keep the original constraints. Report briefly; end with a result or a question.';
+      }
       if (abort.signal.aborted) throw abort.signal.reason;
       t.state = 'succeeded';
       round.result = this.redact(result);

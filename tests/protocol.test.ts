@@ -29,7 +29,12 @@ async function connected(caller: Caller, config: any) {
   return client;
 }
 async function call(client: Client, name: string, args: any) {
-  const r = await client.callTool({ name, arguments: args });
+  const r = await client.callTool({
+    name,
+    arguments: ['agent_status', 'agent_wait'].includes(name)
+      ? { detail: 'full', ...args }
+      : args,
+  });
   if (r.isError) throw new Error(JSON.stringify(r.content));
   return r.structuredContent as any;
 }
@@ -93,7 +98,7 @@ test('MCP HTTP → both real protocol adapters: edit, disconnect, reconnect, con
       let client = await connected(caller, s.config);
       clients.push(client);
       const tools = await client.listTools();
-      assert.equal(tools.tools.length, 6);
+      assert.equal(tools.tools.length, 7);
       const { task } = await call(client, 'agent_run', {
         prompt: 'slow',
         cwd: s.cwd,
@@ -118,6 +123,20 @@ test('MCP HTTP → both real protocol adapters: edit, disconnect, reconnect, con
       assert.equal(status.task.rounds.length, 2);
       assert.match(status.task.rounds[1].result, /round 2/);
       assert.equal(await readFile(join(s.cwd, 'dirty.txt'), 'utf8'), 'keep me');
+      await call(client, 'agent_continue', {
+        taskId: task.id,
+        prompt: 'observe',
+        idempotencyKey: 'observe',
+      });
+      await until(() => terminal(manager.owned(caller, task.id).state), 10000);
+      const observed = await call(client, 'agent_status', {
+        taskId: task.id,
+        limit: 200,
+      });
+      const progress = JSON.stringify(observed.events);
+      assert.ok(progress.includes('node --test'));
+      assert.ok(progress.includes('4 passed'));
+      assert.ok(!progress.includes('fixture-progress-private-key'));
       const opposite = await connected(
         caller === 'codex' ? 'dsh' : 'codex',
         s.config,

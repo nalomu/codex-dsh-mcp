@@ -2,11 +2,20 @@ export type Caller = 'codex' | 'dsh';
 export type State =
   | 'queued'
   | 'running'
+  | 'waiting'
   | 'succeeded'
   | 'failed'
   | 'cancelled'
   | 'interrupted';
-export const terminal = (s: State) => !['queued', 'running'].includes(s);
+export const terminal = (s: State) =>
+  !['queued', 'running', 'waiting'].includes(s);
+export interface Mail {
+  id: number;
+  taskId: string;
+  text: string;
+  createdAt: string;
+  deliveredAt: string | null;
+}
 export interface GitSnapshot {
   available: boolean;
   status?: string;
@@ -77,6 +86,12 @@ export interface Config {
     model: string;
     sourceHome: string;
     modules: string;
+    moduleSource?: 'external' | 'bundled';
+    permissionMode?:
+      | 'read-only'
+      | 'workspace-write'
+      | 'danger-full-access'
+      | 'auto';
   };
   taskTimeoutMs: number;
 }

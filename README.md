@@ -54,14 +54,15 @@ The caller endpoints are `http://127.0.0.1:43219/mcp/codex` and `/mcp/dsh`, with
 
 ## Task tools
 
-| Tool             | Input                                | Behavior                                                   |
-| ---------------- | ------------------------------------ | ---------------------------------------------------------- |
-| `agent_run`      | `prompt`, `cwd`, `idempotencyKey`    | Immediately returns an independent task on the other agent |
-| `agent_status`   | `taskId`, `after`, `limit`           | State, rounds, result, Git snapshots, and paginated events |
-| `agent_wait`     | `taskId`, `after`, `timeoutMs`       | Waits at most 25 seconds for events or a terminal state    |
-| `agent_continue` | `taskId`, `prompt`, `idempotencyKey` | Starts another round in the original session               |
-| `agent_cancel`   | `taskId`                             | Cancels queued work or stops the running process group     |
-| `agent_list`     | `cursor`, `limit`                    | Lists tasks owned by the authenticated caller              |
+| Tool                 | Input                                | Behavior                                                                |
+| -------------------- | ------------------------------------ | ----------------------------------------------------------------------- |
+| `agent_run`          | `prompt`, `cwd`, `idempotencyKey`    | Immediately returns an independent task on the other agent              |
+| `agent_status`       | `taskId`, `after`, `limit`, `detail` | Compact state/reports; full history and snapshots on request            |
+| `agent_wait`         | `taskId`, `after`, `timeoutMs`       | Waits at most 25 seconds for events or a terminal state                 |
+| `agent_continue`     | `taskId`, `prompt`, `idempotencyKey` | Starts another round in the original session                            |
+| `agent_send_message` | `taskId`, `text`, `idempotencyKey`   | Durable feedback at the next turn boundary; starts an idle continuation |
+| `agent_cancel`       | `taskId`                             | Cancels queued work or stops the running process group                  |
+| `agent_list`         | `cursor`, `limit`                    | Lists tasks owned by the authenticated caller                           |
 
 Example `agent_run` input:
 
@@ -73,7 +74,11 @@ Example `agent_run` input:
 }
 ```
 
-Pass the returned `nextCursor` into subsequent status/wait requests. States are `queued`, `running`, `succeeded`, `failed`, `cancelled`, and `interrupted`. A succeeded execution is still subject to the caller's code review and independent tests. A different continuation cannot be submitted while a round is running.
+Pass `nextCursor` into subsequent status/wait requests. Responses default to compact state and short worker reports; prompts, complete round history and execution logs stay local. Request `detail: "full"` only for investigation, with the appropriate historical cursor. Compact cursors skip hidden logs. States include `waiting` for a worker question, alongside `queued`, `running`, `succeeded`, `failed`, `cancelled` and `interrupted`.
+
+Send guidance or replies with `agent_send_message` (up to 4,000 characters and an idempotency key). Delivery occurs after the current execution turn ends, in the same session; it does not interrupt an active tool. A question holds the directory lock while awaiting a reply, cancellation or timeout. Sending to an idle task starts a continuation; duplicate keys do not duplicate delivery. Up to 32 messages may be pending, and one round admits at most 16 automatic turn continuations. Failed tasks are not automatically retried. Inspect changes before explicitly resuming after failure; pending message delivery is not an exactly-once guarantee for external effects.
+
+Workers report progress, questions and results using bounded `bridge-message` text blocks described by the executor. This needs no Desktop plugin or child MCP access. Compact waits ignore raw tool-log updates; no extra summarization-model call is introduced. These are MCP observations, not native Codex subagent cards, and require the caller to keep waiting. A succeeded execution remains subject to review and independent tests.
 
 ## Execution and recovery
 

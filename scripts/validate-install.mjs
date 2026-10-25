@@ -17,7 +17,7 @@ for (const caller of ['codex', 'dsh']) {
     ),
   );
   const tools = await client.listTools();
-  if (tools.tools.length !== 6) throw new Error('Expected six task tools');
+  if (tools.tools.length !== 7) throw new Error('Expected seven task tools');
   const list = await client.callTool({ name: 'agent_list', arguments: {} });
   if (list.isError) throw new Error('agent_list failed');
   console.log(

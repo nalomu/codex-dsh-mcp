@@ -23,6 +23,10 @@ const schema = z.object({
     model: z.string().min(1),
     sourceHome: z.string(),
     modules: z.string(),
+    moduleSource: z.enum(['external', 'bundled']).optional(),
+    permissionMode: z
+      .enum(['read-only', 'workspace-write', 'danger-full-access', 'auto'])
+      .optional(),
   }),
   taskTimeoutMs: z.number().int().min(1000).max(86400000).default(1800000),
 });
@@ -42,7 +46,7 @@ export async function loadConfig(path = defaultConfig()): Promise<Config> {
     config.stateDir,
     config.codex.sourceHome,
     config.dsh.sourceHome,
-    config.dsh.modules,
+    ...(config.dsh.moduleSource === 'bundled' ? [] : [config.dsh.modules]),
     ...config.allowedRoots,
   ])
     if (!isAbsolute(p)) throw new Error('Configuration paths must be absolute');
